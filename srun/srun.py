@@ -10,47 +10,43 @@ import invoke
 
 '''
 Argument should look like this:
-    srun.py ladolphs@youagain opt1=1 opt2=2 ... python main.py
+    srun ladolphs@youagain opt1=1 opt2=2 ... python main.py
 '''
 def main():
     addr = get_remote_address()
     
-    if addr == 'local':
-        srun_options = load_local_srun_options()
-        env = get_environment_variables(srun_options)
-        cmd = get_local_commands(srun_options)
-        connection = invoke
-    else:
-        # execute on server
-        # establish connection to the server
-        connection = fabric.Connection(addr, inline_ssh_env=True) # connect to server
-        connection.client.load_system_host_keys()
+    # should be executed as background process ?
+    in_background = '-bg' in sys.argv
+    if in_background:
+        del sys.argv[sys.argv.index('-bg')]
 
-        srun_options = load_srun_options(connection)
-        env = get_environment_variables(srun_options)
-        path = '/tmp/{}'.format(uuid.uuid4()) # new tmp folder on server
+    # execute on server
+    # establish connection to the server
+    connection = fabric.Connection(addr, inline_ssh_env=True) # connect to server
+    connection.client.load_system_host_keys()
 
-        # upload the files to the server
-        upload_files_to_server(addr, path)
-        
-        # construct the command
-        cmd = get_commands(path, srun_options)
+    srun_options = load_srun_options(connection)
+    env = get_environment_variables(srun_options)
+    path = '/tmp/ladolphs/{}'.format(uuid.uuid4()) # new tmp folder on server
+
+    # upload the files to the server
+    upload_files_to_server(addr, path)
+    
+    # construct the command
+    cmd = get_commands(path, srun_options, in_background)
 
     # execute the command
     connection.run(cmd, env=env) 
+    
+    if in_background:
+        print('[i] Started background tmux session {} on {}'.format(path.split('/')[-1], addr.split('@')[-1]))
 
-def get_local_commands(srun_options):
-    execution_cmd = '{}'.format(' '.join(sys.argv[1:])) # command 
-    cmds = [execution_cmd]  
 
-    if 'requirements.txt' in os.listdir():
-        activate_virtualenv = 'source {}/bin/activate'.format(srun_options['VIRTUALENV'])
-        install_requirements = 'pip install --quiet -r requirements.txt'
-        cmds = [activate_virtualenv, install_requirements, execution_cmd]
+def execute_in_background(session_id, cmd):
+    wrapped_cmd = 'tmux new-session -s {} -d && tmux send-keys -t {} "{}" Enter'.format(session_id, session_id, cmd)
+    return wrapped_cmd
 
-    return ' && '.join(cmds)
-
-def get_commands(path, srun_options):
+def get_commands(path, srun_options, in_background):
     cd_cmd = 'cd {}'.format(path)
     execution_cmd = '{}'.format(' '.join(sys.argv[1:])) # command 
     cmds = [cd_cmd, execution_cmd]  
@@ -60,7 +56,11 @@ def get_commands(path, srun_options):
         install_requirements = 'pip install --quiet -r requirements.txt'
         cmds = [activate_virtualenv, cd_cmd, install_requirements, execution_cmd]
 
-    return ' && '.join(cmds)
+    cmd = ' && '.join(cmds)
+    if in_background:
+        cmd = execute_in_background(path.split('/')[-1], cmd)
+
+    return cmd
 
 def upload_files_to_server(addr, path):
     # exclude some files
@@ -83,9 +83,6 @@ def get_remote_address():
     del sys.argv[1]
     return addr
 
-def load_local_srun_options():
-    return load_srun_options(connection=None, local=True)
-
 def load_srun_options(connection, local=False):
     # loads the srun options from the server
     try:
@@ -104,7 +101,6 @@ def load_srun_options(connection, local=False):
                 if '~' in v:
                     options[k] = v.replace('~', os.path.expanduser('~'))
     except FileNotFoundError:
-        import IPython ; IPython.embed() ; exit(1) 
         print('Options couldnt be found.')
         exit(1)
     return options
