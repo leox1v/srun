@@ -52,7 +52,7 @@ def get_commands(path, srun_options, in_background):
     cd_cmd = 'cd {}'.format(path)
     execution_cmd = '{}'.format(' '.join(sys.argv[1:])) # command 
     if 'CUDA_VISIBLE_DEVICES' in srun_options:
-        execution_cmd = 'CUDA_VISIBLE_DEVICES={} {}'.format(srun_options['CUDA_VISIBLE_DEVICES'], execution_cmd)
+        execution_cmd = 'DATADIR={} CUDA_VISIBLE_DEVICES={} {}'.format(srun_options['DATADIR'], srun_options['CUDA_VISIBLE_DEVICES'], execution_cmd)
     cmds = [cd_cmd, execution_cmd]  
 
     if 'requirements.txt' in os.listdir():
