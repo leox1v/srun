@@ -37,12 +37,32 @@ def main():
     # construct the command
     cmd = get_commands(path, srun_options, in_background)
 
+    construct_venv(srun_options['VIRTUALENV'], connection)
+
     # execute the command
     connection.run(cmd, env=env) 
     
     if in_background:
         print('[i] Started background tmux session {} on {}'.format(path.split('/')[-1], addr.split('@')[-1]))
 
+def exists(name, connection, is_directory=True):
+    return bool(int(connection.run('test {} {} && echo 1 || echo 0'.format('-d' if is_directory else '-f', name)).stdout))
+
+def construct_venv(path, connection):
+    prefix = ''
+    if path[0] == '/':
+        prefix = '/'
+        path = path[1:]
+
+    dirs = [d for d in path.split("/") if not '.' in d]
+    dirs = ['{}{}'.format(prefix, "/".join(dirs[:i+1])) for i in range(len(dirs))]
+    for _dir in dirs[:-1]:
+        if not exists(_dir, connection):
+            connection.run('mkdir {}'.format(_dir))
+    
+    if not exists(dirs[-1], connection):
+        # virtualenv doesnt exist yet
+        connection.run('python3 -m venv {}'.format(dirs[-1]))
 
 def execute_in_background(session_id, cmd):
     wrapped_cmd = 'tmux new-session -s {} -d && tmux send-keys -t {} "{}" Enter'.format(session_id, session_id, cmd)
